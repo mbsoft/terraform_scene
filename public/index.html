@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Terraform — living map scenes</title>
+  <link href="/vendor/maplibre-gl/maplibre-gl.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="stage-wrap">
+    <div id="stage">
+      <div id="map"></div>
+
+      <div class="hud hud-top-left">
+        <label class="pill">
+          <span class="pill-label">Style</span>
+          <select id="style-select"></select>
+        </label>
+        <label class="pill pill-toggle disabled" title="No orbit frames for this location">
+          <input type="checkbox" id="orbit-toggle" disabled /> <span>Orbit</span>
+        </label>
+      </div>
+
+      <div class="hud hud-bottom">
+        <div id="city-chips" class="chips cities"></div>
+        <div id="scene-chips" class="chips"></div>
+      </div>
+
+      <div id="status" class="status" hidden></div>
+      <div id="empty" class="empty" hidden>
+        <h2>No scene rendered yet</h2>
+        <p>Set <code>MAPBOX_TOKEN</code> in <code>.env</code>, then run <code>npm run render -- --scene paris-eiffel --style realistic --orbit</code>.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/vendor/maplibre-gl/maplibre-gl.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

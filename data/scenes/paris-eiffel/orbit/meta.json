@@ -1,0 +1,5 @@
+{
+  "source": "mapbox-standard",
+  "style": "mapbox://styles/mapbox/standard-satellite",
+  "light": "day"
+}

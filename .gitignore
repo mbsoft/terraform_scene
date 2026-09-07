@@ -1,0 +1,11 @@
+node_modules/
+
+# Local env files hold real credentials; only .env.example (placeholders) is committed.
+.env
+.env.*
+!.env.example
+
+data/scenes/**/*.png
+data/scenes/**/*.jpg
+data/scenes/**/*.mp4
+data/scenes/**/*.webm

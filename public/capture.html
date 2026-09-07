@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Terraform — 3D landmark keyframe capture</title>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.8.0/mapbox-gl.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .hud-top-left { flex-wrap: wrap; max-width: 60%; }
+    .hint { position: absolute; z-index: 5; left: 14px; bottom: 14px; right: 14px; color: #ddd; font-size: 12px; opacity: .8; text-shadow: 0 1px 2px #000; }
+  </style>
+</head>
+<body>
+  <div id="stage-wrap">
+    <div id="stage">
+      <div id="map"></div>
+      <div class="hud hud-top-left">
+        <label class="pill"><span class="pill-label">Scene</span><select id="scene-select"></select></label>
+        <label class="pill"><span class="pill-label">Basemap</span>
+          <select id="style-select">
+            <option value="mapbox://styles/mapbox/standard-satellite">Standard Satellite (3D + imagery)</option>
+            <option value="mapbox://styles/mapbox/standard">Standard (3D, vector)</option>
+          </select>
+        </label>
+        <label class="pill"><span class="pill-label">Light</span>
+          <select id="light-select"><option>day</option><option>dawn</option><option>dusk</option><option>night</option></select>
+        </label>
+      </div>
+      <div class="hud hud-top-right">
+        <button id="capture-btn" class="pill button">Capture as keyframe</button>
+        <button id="orbit-btn" class="pill button">Capture 360° orbit</button>
+        <button id="abort-btn" class="pill button ghost" hidden>Stop</button>
+        <a class="pill button ghost" href="/">Back to viewer</a>
+      </div>
+      <div class="hint">Mapbox Standard / Standard Satellite with 3D landmarks. <b>Standard Satellite</b> drapes real satellite imagery over the 3D buildings — use it for a photographic look. Drag / scroll to fine-tune the camera, then capture. The stage is 1280×720 so the capture matches the viewer 1:1. Capturing replaces the Static-Images keyframe for this scene and clears its derived stills/clips.
+      <b>Capture 360° orbit</b> sweeps every bearing the pipeline uses and replaces that scene's orbit frames with 3D ones — it ignores your manual camera and uses the scene's own centre/zoom/pitch, and takes a few minutes.</div>
+      <div id="status" class="status" hidden></div>
+    </div>
+  </div>
+
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.8.0/mapbox-gl.js"></script>
+  <script type="module">
+    const cfg = await fetch('/api/config').then((r) => r.json());
+    mapboxgl.accessToken = cfg.mapboxToken;
+
+    const sceneSelect = document.getElementById('scene-select');
+    for (const s of cfg.scenes) sceneSelect.add(new Option(s.city ? `${s.city} — ${s.name}` : s.name, s.id));
+    const scene = () => cfg.scenes.find((s) => s.id === sceneSelect.value);
+
+    const styleSelect = document.getElementById('style-select');
+    const lightSelect = document.getElementById('light-select');
+
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: styleSelect.value,
+      ...scene().camera,
+      preserveDrawingBuffer: true, // required for canvas.toBlob()
+      attributionControl: false,
+      maxPitch: 85,
+    });
+    // Re-applied on every style.load, since setStyle() resets the basemap config.
+    map.on('style.load', () => {
+      map.setConfigProperty('basemap', 'lightPreset', lightSelect.value);
+      map.setConfigProperty('basemap', 'show3dObjects', true);
+      map.setConfigProperty('basemap', 'showPointOfInterestLabels', false);
+      map.setConfigProperty('basemap', 'showPlaceLabels', false);
+      map.setConfigProperty('basemap', 'showRoadLabels', false);
+      map.setConfigProperty('basemap', 'showTransitLabels', false);
+    });
+
+    sceneSelect.onchange = () => map.jumpTo(scene().camera);
+    styleSelect.onchange = () => map.setStyle(styleSelect.value);
+    lightSelect.onchange = (e) => map.setConfigProperty('basemap', 'lightPreset', e.target.value);
+
+    const statusEl = document.getElementById('status');
+    const status = (m) => { statusEl.textContent = m; statusEl.hidden = false; setTimeout(() => (statusEl.hidden = true), 4000); };
+
+    // --- 360° orbit sweep: same bearings renderOrbit() uses, but rendered here in Standard 3D ------
+    const orbitBtn = document.getElementById('orbit-btn');
+    const abortBtn = document.getElementById('abort-btn');
+    let aborted = false;
+    abortBtn.onclick = () => { aborted = true; abortBtn.disabled = true; status('Stopping after this frame…'); };
+
+    const settled = () => new Promise((r) => (map.loaded() && !map.isMoving() && map.areTilesLoaded() ? r() : map.once('idle', r)));
+
+    // The sweep deletes the scene's existing frames, so it takes two clicks to start. A modal
+    // confirm() would block the page (and any browser automation driving it).
+    let armed = null;
+    orbitBtn.onclick = async () => {
+      const s = scene();
+      if (armed !== s.id) {
+        armed = s.id;
+        orbitBtn.textContent = 'Click again to replace frames';
+        setTimeout(() => { if (armed === s.id) { armed = null; orbitBtn.textContent = 'Capture 360° orbit'; } }, 5000);
+        return;
+      }
+      armed = null;
+      orbitBtn.textContent = 'Capture 360° orbit';
+
+      const plan = await fetch(`/api/scenes/${s.id}/orbit-plan`).then((r) => r.json());
+      if (plan.error) return status('✖ ' + plan.error);
+
+      aborted = false;
+      orbitBtn.disabled = true;
+      document.getElementById('capture-btn').disabled = true;
+      abortBtn.hidden = false; abortBtn.disabled = false;
+
+      try {
+        await fetch(`/api/scenes/${s.id}/orbit`, { method: 'DELETE' });
+        // Tells the viewer these frames are already lit, so it must not apply the style's
+        // colour grade on top (that grade is tuned for raw Static Images satellite frames).
+        await fetch(`/api/scenes/${s.id}/orbit/meta`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: 'mapbox-standard', style: styleSelect.value, light: lightSelect.value }),
+        });
+        for (let i = 0; i < plan.frames; i++) {
+          if (aborted) { status(`Stopped after ${i} frames — the sweep is incomplete.`); break; }
+          // Pin to the scene's own camera so the frames match what the viewer expects.
+          map.jumpTo({ ...plan.camera, bearing: plan.bearings[i] });
+          await settled();
+          map.triggerRepaint();
+          await new Promise((r) => map.once('render', r));
+          const blob = await new Promise((r) => map.getCanvas().toBlob(r, 'image/png'));
+          const res = await fetch(`/api/scenes/${s.id}/orbit/${i}`, {
+            method: 'POST', headers: { 'Content-Type': 'image/png' }, body: blob,
+          });
+          const json = await res.json();
+          if (json.error) throw new Error(json.error);
+          statusEl.textContent = `Captured ${i + 1}/${plan.frames} (bearing ${plan.bearings[i]}°)`;
+          statusEl.hidden = false;
+        }
+        if (!aborted) status(`✓ ${plan.frames} orbit frames captured in Standard 3D. Reload the viewer and tick Orbit.`);
+      } catch (e) {
+        status('✖ ' + e.message);
+      } finally {
+        orbitBtn.disabled = false;
+        document.getElementById('capture-btn').disabled = false;
+        abortBtn.hidden = true;
+      }
+    };
+
+    document.getElementById('capture-btn').onclick = async () => {
+      await new Promise((r) => (map.loaded() && !map.isMoving() ? r() : map.once('idle', r)));
+      map.triggerRepaint();
+      await new Promise((r) => map.once('render', r));
+      const blob = await new Promise((r) => map.getCanvas().toBlob(r, 'image/png'));
+      const s = scene();
+      const cam = { center: [map.getCenter().lng, map.getCenter().lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+      const res = await fetch(`/api/scenes/${s.id}/keyframe`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: blob });
+      const json = await res.json();
+      if (json.error) return status('✖ ' + json.error);
+      status(`✓ keyframe saved (${Math.round(json.bytes / 1024)} KB). If you moved the camera, copy this into scenes.js: ${JSON.stringify(cam)}`);
+      console.log('camera for scenes.js', s.id, cam);
+    };
+  </script>
+</body>
+</html>

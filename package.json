@@ -1,0 +1,21 @@
+{
+  "name": "terraform",
+  "version": "0.1.0",
+  "description": "Living map scenes you fly between: Mapbox keyframes → AI-styled → AI-animated → MapLibre custom video layer with interactive labels.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "render": "node server/pipeline/run.js",
+    "render:all": "node server/pipeline/run.js --all"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "maplibre-gl": "^4.7.1"
+  }
+}
