@@ -164,6 +164,39 @@ for the graded frames matching `realistic/styled.png`'s mean RGB and luma spread
 imagery but cannot reinterpret it, which is fine for `realistic` (satellite imagery already *is*
 photoreal) but would not work for a painterly style.
 
+## Deploying to Cloud Run
+
+```bash
+gcloud run deploy terraform-scene \
+  --source . --region us-central1 --allow-unauthenticated \
+  --memory 2Gi --max-instances 3 \
+  --set-env-vars "MAPBOX_TOKEN=pk.…,READ_ONLY=1"
+```
+
+The rendered scenes are baked into the image (`COPY data ./data`), so the container is
+self-contained — roughly 1 GB of scene data on top of the base image. Rebuild and redeploy to ship
+newly rendered scenes.
+
+**`.gcloudignore` is required, not optional.** With no `.gcloudignore`, `gcloud` falls back to
+`.gitignore` — which excludes `data/scenes/**/*.png|mp4` — and you would silently deploy an image
+with no scene data. The committed `.gcloudignore` excludes `node_modules` and the env files but
+deliberately keeps `data/`.
+
+### Read-only mode
+
+`config.readOnly` disables every endpoint that mutates data or spends money — `/api/render`, the
+keyframe upload, and the three orbit-capture endpoints all return 403. It defaults **on** when
+`K_SERVICE` is set (i.e. on Cloud Run) and **off** locally, so `capture.html` keeps working on your
+machine while a public deployment cannot be used to run up your OpenAI or fal bill. `READ_ONLY=1`
+or `READ_ONLY=0` overrides the default either way.
+
+A read-only deployment needs **only** `MAPBOX_TOKEN` — leave `OPENAI_API_KEY` and `FAL_KEY` out of
+the service entirely. Note the Mapbox token is served to the browser by `/api/config` (the map tiles
+need it client-side), so on a public URL it is visible to anyone: use a `pk.` token restricted to
+the deployed origin in the Mapbox account settings.
+
+Rendering stays local — render on your machine, then redeploy.
+
 ## Layout
 
 | Path | What |

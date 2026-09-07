@@ -1,0 +1,10 @@
+.git
+.gitignore
+node_modules
+.env
+.env.*
+!.env.example
+.vscode
+npm-debug.log
+
+# NOTE: data/ is deliberately NOT ignored — the rendered scenes ship with the image.

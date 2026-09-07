@@ -19,6 +19,11 @@ function clampDuration(value, dflt) {
 
 export const config = {
   port: Number(process.env.PORT || 3000),
+  // Read-only mode disables every endpoint that mutates data or spends money on the OpenAI/fal
+  // APIs. It defaults ON when running on Cloud Run (which sets K_SERVICE), because a public
+  // deployment must not let anyone trigger paid renders or overwrite scene data. Locally it
+  // defaults OFF so capture.html keeps working. READ_ONLY=1/0 overrides either way.
+  readOnly: process.env.READ_ONLY === '1' || (process.env.READ_ONLY !== '0' && Boolean(process.env.K_SERVICE)),
   mapboxToken: process.env.MAPBOX_TOKEN || '',
   openaiKey: process.env.OPENAI_API_KEY || '',
   falKey: process.env.FAL_KEY || '',

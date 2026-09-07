@@ -17,6 +17,7 @@ app.get('/api/config', (_req, res) => {
     mapboxToken: config.mapboxToken,
     capabilities: { stylize: Boolean(config.openaiKey), animate: Boolean(config.falKey) },
     orbit: { frames: config.orbitFrames, fps: config.orbitFps },
+    readOnly: config.readOnly,
     scenes: SCENES,
     styles: Object.fromEntries(Object.entries(STYLES).map(([id, s]) => [id, { id, name: s.name, grade: s.grade || null }])),
   });
@@ -25,6 +26,14 @@ app.get('/api/config', (_req, res) => {
 app.get('/api/manifest', async (_req, res, next) => {
   try { res.json(await buildManifest()); } catch (e) { next(e); }
 });
+
+// Every mutating / paid endpoint sits behind this. See config.readOnly.
+function writable(_req, res, next) {
+  if (config.readOnly) {
+    return res.status(403).json({ error: 'This deployment is read-only: rendering and capture are disabled.' });
+  }
+  next();
+}
 
 // ---- Render jobs (run in the background; poll /api/jobs/:id) --------------------------------
 const jobs = new Map();
@@ -42,7 +51,7 @@ function startJob(fn, meta) {
   return job;
 }
 
-app.post('/api/render', (req, res) => {
+app.post('/api/render', writable, (req, res) => {
   const { scene, style = 'realistic', to = [], all = false, orbit = false, force = false } = req.body || {};
   try {
     getStyle(style);
@@ -78,7 +87,7 @@ app.get('/api/scenes/:id/orbit-plan', (req, res) => {
   }
 });
 
-app.delete('/api/scenes/:id/orbit', async (req, res, next) => {
+app.delete('/api/scenes/:id/orbit', writable, async (req, res, next) => {
   try {
     const scene = getScene(req.params.id);
     await fs.rm(paths.orbitDir(scene.id), { recursive: true, force: true });
@@ -86,7 +95,7 @@ app.delete('/api/scenes/:id/orbit', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-app.post('/api/scenes/:id/orbit/meta', async (req, res, next) => {
+app.post('/api/scenes/:id/orbit/meta', writable, async (req, res, next) => {
   try {
     const scene = getScene(req.params.id);
     const { source = 'mapbox-standard', style = null, light = null } = req.body || {};
@@ -97,7 +106,7 @@ app.post('/api/scenes/:id/orbit/meta', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-app.post('/api/scenes/:id/orbit/:index', express.raw({ type: 'image/png', limit: '40mb' }), async (req, res, next) => {
+app.post('/api/scenes/:id/orbit/:index', writable, express.raw({ type: 'image/png', limit: '40mb' }), async (req, res, next) => {
   try {
     const scene = getScene(req.params.id);
     const total = orbitBearings(scene.camera).length;
@@ -114,7 +123,7 @@ app.post('/api/scenes/:id/orbit/:index', express.raw({ type: 'image/png', limit:
 });
 
 // ---- Keyframe upload (from public/capture.html, which renders Mapbox Standard 3D landmarks) ----
-app.post('/api/scenes/:id/keyframe', express.raw({ type: 'image/png', limit: '40mb' }), async (req, res, next) => {
+app.post('/api/scenes/:id/keyframe', writable, express.raw({ type: 'image/png', limit: '40mb' }), async (req, res, next) => {
   try {
     const scene = getScene(req.params.id);
     if (!req.body?.length) return res.status(400).json({ error: 'expected image/png body' });
@@ -135,4 +144,5 @@ app.use((err, _req, res, _next) => {
 app.listen(config.port, () => {
   console.log(`Terraform → http://localhost:${config.port}`);
   console.log(`  Mapbox: ${config.mapboxToken ? 'ok' : 'MISSING'}  OpenAI: ${config.openaiKey ? 'ok' : 'off'}  fal: ${config.falKey ? 'ok' : 'off'}`);
+  console.log(`  mode: ${config.readOnly ? 'READ-ONLY (render/capture endpoints disabled)' : 'writable'}`);
 });
