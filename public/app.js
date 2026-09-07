@@ -53,8 +53,23 @@ map.on('load', () => {
   // pipeline and exposed in the manifest, so re-enabling is a frontend-only change.
   map.addLayer(mediaLayer);
 
+  collapseAttribution();
   showScene(firstReadyScene() || firstScene.id, { instant: true });
 });
+
+/**
+ * MapLibre's `compact: true` attribution still renders *expanded*: _updateCompact() sets the
+ * `open` attribute and adds `maplibregl-compact-show`. Strip both to leave just the ⓘ button.
+ * Keeping `maplibregl-compact` matters — _updateCompact() short-circuits when that class is
+ * already present, so a later resize or attribution update won't pop it back open.
+ */
+function collapseAttribution() {
+  for (const el of document.querySelectorAll('.maplibregl-ctrl-attrib')) {
+    el.classList.add('maplibregl-compact');
+    el.classList.remove('maplibregl-compact-show');
+    el.removeAttribute('open');
+  }
+}
 map.on('error', (e) => { if (e?.error?.message) setStatus(`Map: ${e.error.message}`, 6000); });
 renderChips();
 
