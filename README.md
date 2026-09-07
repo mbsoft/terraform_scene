@@ -182,6 +182,19 @@ newly rendered scenes.
 with no scene data. The committed `.gcloudignore` excludes `node_modules` and the env files but
 deliberately keeps `data/`.
 
+### Large media and the 32 MiB response cap
+
+Cloud Run caps a single HTTP response at 32 MiB. Generated clips routinely exceed that — a 15s
+loop at the model's default bitrate is ~50 MB — and a `<video>` element opens playback with
+`Range: bytes=0-`, which asks for the whole file and trips the cap (HTTP 500, and the viewer stays
+on the bare base map because the layer only fades in once the clip is ready).
+
+`server/index.js` therefore clamps open-ended or oversized range requests on `/data` to 8 MiB
+chunks. The browser transparently requests the next chunk as it plays; small files are untouched.
+
+The clips are also far larger than they need to be — around 27 Mbps for 1152×768 — so re-encoding
+them (or serving media from a bucket) would cut the image size several-fold and speed up loads.
+
 ### Read-only mode
 
 `config.readOnly` disables every endpoint that mutates data or spends money — `/api/render`, the

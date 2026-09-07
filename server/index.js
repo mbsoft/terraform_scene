@@ -8,7 +8,23 @@ import { renderScene, renderAll, buildManifest, paths, orbitBearings } from './p
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(PUBLIC_DIR));
-app.use('/data', express.static(DATA_DIR, { maxAge: '1h' }));
+// Cloud Run caps a single HTTP response at 32 MiB, and several generated clips exceed that
+// (a 5s loop can be ~50 MB). A <video> element opens with `Range: bytes=0-`, which asks for the
+// whole file and trips the cap — so open-ended or oversized ranges are clamped to a chunk the
+// platform will deliver. The browser simply requests the next chunk as it plays.
+const MAX_RANGE_BYTES = 8 * 1024 * 1024;
+app.use('/data', (req, res, next) => {
+  const m = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range || '');
+  if (m) {
+    const start = Number(m[1]);
+    const end = m[2] === '' ? Infinity : Number(m[2]);
+    if (end - start + 1 > MAX_RANGE_BYTES) {
+      req.headers.range = `bytes=${start}-${start + MAX_RANGE_BYTES - 1}`;
+    }
+  }
+  next();
+});
+app.use('/data', express.static(DATA_DIR, { maxAge: '1h', acceptRanges: true }));
 app.use('/vendor/maplibre-gl', express.static(path.join(ROOT, 'node_modules', 'maplibre-gl', 'dist'), { maxAge: '1d' }));
 
 // Public config for the browser (the Mapbox token is needed client-side for tiles).
